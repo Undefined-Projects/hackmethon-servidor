@@ -1,0 +1,10 @@
+{
+  "name": "hackmethon",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Landing y registro del HACK(ME)THON",
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0"
+  }
+}
