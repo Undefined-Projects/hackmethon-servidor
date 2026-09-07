@@ -4,7 +4,7 @@
    para dar buenos mensajes, el servidor valida porque el cliente es
    modificable por quien sea. */
 
-import { prepara, sql, CUPO, folio } from "../lib/db.js";
+import { prepara, sql, leeCupo, folio } from "../lib/db.js";
 import { cors } from "../lib/cors.js";
 
 const TOPE = { equipo: 32, correo: 120, nombre: 60, tel: 20 };
@@ -53,8 +53,9 @@ export default async function handler(req, res){
     const q = sql();
 
     const [{ total }] = await q`select count(*)::int as total from registros`;
-    if (total >= CUPO)
-      return res.status(409).json({ mensaje: `CUPO LLENO: LOS ${CUPO} EQUIPOS YA ESTÁN REGISTRADOS.`, lleno: true });
+    const cupo = await leeCupo();
+    if (total >= cupo)
+      return res.status(409).json({ mensaje: `CUPO LLENO: LOS ${cupo} EQUIPOS YA ESTÁN REGISTRADOS.`, lleno: true });
 
     let fila;
     try {
@@ -76,7 +77,7 @@ export default async function handler(req, res){
     avisa({ folio: clave, equipo, correo, lider, integrantes, emblema }).catch(e =>
       console.error("No se pudo mandar el aviso por correo:", e?.message));
 
-    return res.status(201).json({ ok: true, folio: clave, quedan: Math.max(CUPO - total - 1, 0) });
+    return res.status(201).json({ ok: true, folio: clave, quedan: Math.max(cupo - total - 1, 0) });
 
   } catch (e) {
     console.error("registro:", e);
