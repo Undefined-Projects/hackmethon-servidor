@@ -5,7 +5,7 @@
      GET                → lista completa
      DELETE ?id=7       → borra ese equipo */
 
-import { prepara, sql, leeCupo, folio } from "../lib/db.js";
+import { prepara, sql, leeCupo, leeProximamente, quedan, folio } from "../lib/db.js";
 import { cors } from "../lib/cors.js";
 import { revisaToken } from "../lib/auth.js";
 
@@ -38,7 +38,7 @@ export default async function handler(req, res){
       const cupo = await leeCupo();
       return res.status(200).json({
         ok: true, borrado: folio(fila.id), equipo: fila.equipo,
-        cupo, registrados: total, quedan: Math.max(cupo - total, 0),
+        cupo, registrados: total, quedan: quedan(cupo, total),
       });
     }
 
@@ -50,7 +50,8 @@ export default async function handler(req, res){
     return res.status(200).json({
       cupo,
       registrados: filas.length,
-      quedan: Math.max(cupo - filas.length, 0),
+      quedan: quedan(cupo, filas.length),
+      proximamente: await leeProximamente(),
       registros: filas.map(f => ({ ...f, folio: folio(f.id) })),
     });
 

@@ -4,7 +4,7 @@
    para dar buenos mensajes, el servidor valida porque el cliente es
    modificable por quien sea. */
 
-import { prepara, sql, leeCupo, folio } from "../lib/db.js";
+import { prepara, sql, leeCupo, leeProximamente, quedan, folio } from "../lib/db.js";
 import { cors } from "../lib/cors.js";
 
 const TOPE = { equipo: 32, correo: 120, nombre: 60, tel: 20 };
@@ -46,15 +46,20 @@ export default async function handler(req, res){
       return res.status(400).json({ mensaje: "MARCA A UN LÍDER." });
     if (!integrantes[lider - 1].telefono)
       return res.status(400).json({ mensaje: "FALTA EL TELÉFONO DEL LÍDER." });
-    if (!/^[0-3]{144}$/.test(emblema))
+    if (!/^[0-4]{144}$/.test(emblema))
       return res.status(400).json({ mensaje: "EL EMBLEMA NO ES VÁLIDO." });
 
     await prepara();
     const q = sql();
 
+    // En modo "próximamente" la portada ni enseña el formulario, pero el
+    // servidor también lo cierra: el cliente es modificable.
+    if (await leeProximamente())
+      return res.status(409).json({ mensaje: "EL REGISTRO TODAVÍA NO ABRE.", lleno: true });
+
     const [{ total }] = await q`select count(*)::int as total from registros`;
     const cupo = await leeCupo();
-    if (total >= cupo)
+    if (cupo > 0 && total >= cupo)                 // 0 = sin límite
       return res.status(409).json({ mensaje: `CUPO LLENO: LOS ${cupo} EQUIPOS YA ESTÁN REGISTRADOS.`, lleno: true });
 
     let fila;
@@ -77,7 +82,7 @@ export default async function handler(req, res){
     avisa({ folio: clave, equipo, correo, lider, integrantes, emblema }).catch(e =>
       console.error("No se pudo mandar el aviso por correo:", e?.message));
 
-    return res.status(201).json({ ok: true, folio: clave, quedan: Math.max(cupo - total - 1, 0) });
+    return res.status(201).json({ ok: true, folio: clave, quedan: quedan(cupo, total + 1) });
 
   } catch (e) {
     console.error("registro:", e);
@@ -97,7 +102,7 @@ async function avisa(r){
     `  0${n + 1} ${n + 1 === r.lider ? "[LÍDER]" : "       "} ${i.nombre} — ${i.telefono || "sin teléfono"}`);
 
   const texto = [
-    `REGISTRO HACK(ME)THON — ${r.folio}`,
+    `REGISTRO HACK(ME)THON 2.0 — ${r.folio}`,
     "=".repeat(40),
     `EQUIPO ......... ${r.equipo}`,
     `CORREO ......... ${r.correo}`,
@@ -116,7 +121,7 @@ async function avisa(r){
       from: remitente,
       to: [para],
       reply_to: r.correo,
-      subject: `Registro HACK(ME)THON — ${r.equipo} (${r.folio})`,
+      subject: `Registro HACK(ME)THON 2.0 — ${r.equipo} (${r.folio})`,
       text: texto,
     }),
   });
