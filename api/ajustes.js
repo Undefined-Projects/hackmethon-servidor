@@ -2,9 +2,12 @@
    ADMIN_TOKEN. Acepta cualquiera de los dos, o los dos:
      { cupo: 12 }               cuántos equipos caben (0 = sin límite)
      { proximamente: true }     la portada solo enseña la primera pantalla
-                                y el registro no acepta altas */
+                                y el registro no acepta altas
+     { tamano: 4 }              integrantes por equipo (1 a 6); no toca a
+                                los equipos ya registrados */
 
-import { prepara, sql, leeCupo, guardaCupo, leeProximamente, guardaProximamente, quedan } from "../lib/db.js";
+import { prepara, sql, leeCupo, guardaCupo, leeProximamente, guardaProximamente,
+         leeTamano, guardaTamano, TAMANO_TOPE, quedan } from "../lib/db.js";
 import { cors } from "../lib/cors.js";
 import { revisaToken } from "../lib/auth.js";
 
@@ -26,7 +29,8 @@ export default async function handler(req, res){
     const cuerpo = req.body || {};
     const traeCupo = cuerpo.cupo !== undefined;
     const traeModo = cuerpo.proximamente !== undefined;
-    if (!traeCupo && !traeModo)
+    const traeTamano = cuerpo.tamano !== undefined;
+    if (!traeCupo && !traeModo && !traeTamano)
       return res.status(400).json({ mensaje: "NO HAY NADA QUE GUARDAR." });
 
     const cupoNuevo = Number(cuerpo.cupo);
@@ -34,10 +38,14 @@ export default async function handler(req, res){
       return res.status(400).json({ mensaje: `EL CUPO DEBE SER UN ENTERO ENTRE 0 (SIN LÍMITE) Y ${TOPE}.` });
     if (traeModo && typeof cuerpo.proximamente !== "boolean")
       return res.status(400).json({ mensaje: "EL MODO PRÓXIMAMENTE ES SÍ O NO." });
+    const tamanoNuevo = Number(cuerpo.tamano);
+    if (traeTamano && (!Number.isInteger(tamanoNuevo) || tamanoNuevo < 1 || tamanoNuevo > TAMANO_TOPE))
+      return res.status(400).json({ mensaje: `LOS INTEGRANTES POR EQUIPO VAN DE 1 A ${TAMANO_TOPE}.` });
 
     await prepara();
     if (traeCupo) await guardaCupo(cupoNuevo);
     if (traeModo) await guardaProximamente(cuerpo.proximamente);
+    if (traeTamano) await guardaTamano(tamanoNuevo);
 
     const [{ total }] = await sql()`select count(*)::int as total from registros`;
     const cupo = await leeCupo();
@@ -50,6 +58,7 @@ export default async function handler(req, res){
       // No se impide: es una forma legítima de cerrarlo antes de tiempo.
       cerrado: cupo > 0 && total >= cupo,
       proximamente: await leeProximamente(),
+      tamano: await leeTamano(),
     });
 
   } catch (e) {

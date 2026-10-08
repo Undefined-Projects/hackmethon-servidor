@@ -5,7 +5,7 @@
      GET                → lista completa
      DELETE ?id=7       → borra ese equipo */
 
-import { prepara, sql, leeCupo, leeProximamente, quedan, folio } from "../lib/db.js";
+import { prepara, sql, leeCupo, leeProximamente, leeTamano, quedan, folio } from "../lib/db.js";
 import { cors } from "../lib/cors.js";
 import { revisaToken } from "../lib/auth.js";
 
@@ -43,7 +43,7 @@ export default async function handler(req, res){
     }
 
     const filas = await q`
-      select id, equipo, correo, lider, integrantes, emblema, creado
+      select id, equipo, correo, lider, integrantes, emblema, creado, privacidad, tutor
       from registros order by id asc`;
     const cupo = await leeCupo();
 
@@ -52,6 +52,7 @@ export default async function handler(req, res){
       registrados: filas.length,
       quedan: quedan(cupo, filas.length),
       proximamente: await leeProximamente(),
+      tamano: await leeTamano(),
       registros: filas.map(f => ({ ...f, folio: folio(f.id) })),
     });
 

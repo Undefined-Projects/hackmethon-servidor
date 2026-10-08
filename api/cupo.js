@@ -2,7 +2,7 @@
    "próximamente". Público a propósito: lo consume la portada al cargar.
    No devuelve ningún dato personal. */
 
-import { prepara, sql, leeCupo, leeProximamente, quedan, CUPO_POR_DEFECTO } from "../lib/db.js";
+import { prepara, sql, leeCupo, leeProximamente, leeTamano, quedan, CUPO_POR_DEFECTO, TAMANO_POR_DEFECTO } from "../lib/db.js";
 import { cors } from "../lib/cors.js";
 
 export default async function handler(req, res){
@@ -22,11 +22,12 @@ export default async function handler(req, res){
     const [{ total }] = await q`select count(*)::int as total from registros`;
     const cupo = await leeCupo();
     const proximamente = await leeProximamente();
-    return res.status(200).json({ cupo, registrados: total, quedan: quedan(cupo, total), proximamente });
+    const tamano = await leeTamano();
+    return res.status(200).json({ cupo, registrados: total, quedan: quedan(cupo, total), proximamente, tamano });
   } catch (e) {
     console.error("cupo:", e);
     // La portada funciona igual sin este dato, así que no se grita.
     // proximamente: null = "no sé", y la portada se queda como estaba.
-    return res.status(200).json({ cupo: CUPO_POR_DEFECTO, registrados: null, quedan: null, proximamente: null });
+    return res.status(200).json({ cupo: CUPO_POR_DEFECTO, registrados: null, quedan: null, proximamente: null, tamano: null });
   }
 }
