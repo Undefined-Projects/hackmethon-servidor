@@ -7,6 +7,8 @@
    GET ?repeticion=ID       panel: la repetición de una partida (semilla,
                             latidos y su prueba) para verla. Pide token.
    DELETE ?correo=…         panel: quita a alguien de la tabla. Pide token.
+   DELETE ?correo=…&clave=1 panel: solo le borra la contraseña (la olvidó);
+                            la próxima vez que registre, elige una nueva.
                             Sus partidas quedan registradas, así que no
                             puede volver a usar las mismas. */
 
@@ -59,7 +61,7 @@ export default async function handler(req, res){
 
     if (req.method === "GET"){
       const filas = await q`
-        select correo, alias, puntos, partida, logrado from bypass_puntajes
+        select correo, alias, puntos, partida, logrado, (clave is not null) as con_clave from bypass_puntajes
         order by puntos desc, logrado asc`;
       const [{ partidas }] = await q`select count(*)::int as partidas from bypass_partidas`;
       return res.status(200).json({ filas, partidas, finalistas: FINALISTAS, cierre: cierre(), abierto: abierto() });
@@ -68,6 +70,11 @@ export default async function handler(req, res){
     if (req.method === "DELETE"){
       const correo = String(req.query?.correo || "").trim().toLowerCase();
       if (!correo) return res.status(400).json({ mensaje: "FALTA EL CORREO." });
+      if (req.query?.clave){
+        const r = await q`update bypass_puntajes set clave = null where correo = ${correo} returning correo`;
+        if (!r.length) return res.status(404).json({ mensaje: "ESE CORREO NO ESTÁ EN LA TABLA." });
+        return res.status(200).json({ ok: true });
+      }
       const borradas = await q`delete from bypass_puntajes where correo = ${correo} returning correo`;
       if (!borradas.length) return res.status(404).json({ mensaje: "ESE CORREO NO ESTÁ EN LA TABLA." });
       return res.status(200).json({ ok: true });

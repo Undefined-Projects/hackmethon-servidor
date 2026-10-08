@@ -16,11 +16,17 @@
    Se guarda la repetición (semilla, latidos, aparición de la prueba)
    para poder verla desde el panel.
 
-   Cada correo tiene una sola fila con su mejor puntaje. */
+   Cada correo tiene una sola fila con su mejor puntaje, protegida con
+   una contraseña sencilla (estilo when2meet): la primera vez se elige y
+   después hace falta para registrar con ese correo. El alias es único
+   (un alias, un correo) y los de la organización están reservados.
+   Todo eso se revisa ANTES de anotar la partida como usada, para que un
+   error de contraseña o de alias no le gaste la partida al jugador. */
 
 import { prepara, sql } from "../lib/db.js";
 import { cors } from "../lib/cors.js";
-import { motor, leePartida, pruebaDe, abierto, VIGENCIA_MS, TOPE_PASOS } from "../lib/bypass.js";
+import { motor, leePartida, pruebaDe, abierto, VIGENCIA_MS, TOPE_PASOS,
+         cifraClave, claveCorrecta, aliasReservado } from "../lib/bypass.js";
 
 const limpia = (v, max) => String(v ?? "").trim().replace(/\s+/g, " ").slice(0, max);
 const ALIAS_OK  = /^[A-Z0-9ÁÉÍÓÚÜÑ _.\-]{2,14}$/;
@@ -44,6 +50,11 @@ export default async function handler(req, res){
     const correo = limpia(cuerpo.correo, 120).toLowerCase();
     if (!ALIAS_OK.test(alias))   return res.status(400).json({ mensaje: "EL ALIAS VA DE 2 A 14 LETRAS, NÚMEROS O ESPACIOS." });
     if (!CORREO_OK.test(correo)) return res.status(400).json({ mensaje: "EL CORREO NO ES VÁLIDO." });
+    const clave = String(cuerpo.clave ?? "");
+    if (clave.length < 4 || clave.length > 32)
+      return res.status(400).json({ mensaje: "LA CONTRASEÑA VA DE 4 A 32 CARACTERES.", campo: "clave" });
+    if (aliasReservado(alias))
+      return res.status(400).json({ mensaje: "ESE ALIAS ESTÁ RESERVADO. ELIGE OTRO.", campo: "alias" });
 
     const partida = leePartida(cuerpo.token);
     if (!partida) return res.status(400).json({ mensaje: "LA PARTIDA NO ES VÁLIDA." });
@@ -91,6 +102,17 @@ export default async function handler(req, res){
 
     await prepara();
     const q = sql();
+
+    // el alias es de quien lo registró primero
+    const [otro] = await q`select correo from bypass_puntajes where alias = ${alias} and correo <> ${correo}`;
+    if (otro) return res.status(409).json({ mensaje: "ESE ALIAS YA ES DE OTRA PERSONA. ELIGE OTRO.", campo: "alias" });
+
+    // la contraseña: si el correo ya tiene una, tiene que coincidir
+    const [fila] = await q`select clave from bypass_puntajes where correo = ${correo}`;
+    if (fila?.clave && !claveCorrecta(clave, fila.clave))
+      return res.status(401).json({ mensaje: "LA CONTRASEÑA NO COINCIDE CON LA DE ESE CORREO.", campo: "clave" });
+    const nueva = fila?.clave ? null : cifraClave(clave);
+
     try {
       await q`insert into bypass_partidas (id, correo, puntos, pasos, semilla, latidos, aparicion)
               values (${partida.id}, ${correo}, ${puntos}, ${pasos}, ${partida.s},
@@ -102,13 +124,22 @@ export default async function handler(req, res){
     }
 
     // solo se sobrescribe si mejora
-    await q`
-      insert into bypass_puntajes (correo, alias, puntos, partida)
-      values (${correo}, ${alias}, ${puntos}, ${partida.id})
-      on conflict (correo) do update
-        set alias = excluded.alias, puntos = excluded.puntos,
-            partida = excluded.partida, logrado = now()
-        where bypass_puntajes.puntos < excluded.puntos`;
+    try {
+      await q`
+        insert into bypass_puntajes (correo, alias, puntos, partida, clave)
+        values (${correo}, ${alias}, ${puntos}, ${partida.id}, ${nueva})
+        on conflict (correo) do update
+          set alias = excluded.alias, puntos = excluded.puntos,
+              partida = excluded.partida, logrado = now()
+          where bypass_puntajes.puntos < excluded.puntos`;
+    } catch (e) {
+      // dos personas registrando el mismo alias al mismo tiempo: gana una
+      if (/duplicate key|unique constraint/i.test(String(e?.message)))
+        return res.status(409).json({ mensaje: "ESE ALIAS YA ES DE OTRA PERSONA. ELIGE OTRO.", campo: "alias" });
+      throw e;
+    }
+    // un correo que ya estaba sin contraseña la estrena aquí
+    if (nueva) await q`update bypass_puntajes set clave = ${nueva} where correo = ${correo} and clave is null`;
     const [mio] = await q`select puntos, logrado from bypass_puntajes where correo = ${correo}`;
     const [{ n }] = await q`
       select count(*)::int as n from bypass_puntajes
