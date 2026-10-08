@@ -9,13 +9,18 @@
    - no se haya jugado más rápido que el tiempo real (un bot que
      simule la partida tiene que esperar lo mismo que una persona),
    - los latidos sean una lista sana: enteros, en orden, dentro de la
-     partida y no más de 20 por segundo.
+     partida y no más de 20 por segundo,
+   - y la partida haya pasado la prueba del monitor: llegó a la válvula
+     secreta, la prueba apareció a tiempo y se respondió como pedía.
+
+   Se guarda la repetición (semilla, latidos, aparición de la prueba)
+   para poder verla desde el panel.
 
    Cada correo tiene una sola fila con su mejor puntaje. */
 
 import { prepara, sql } from "../lib/db.js";
 import { cors } from "../lib/cors.js";
-import { motor, leePartida, abierto, VIGENCIA_MS, TOPE_PASOS } from "../lib/bypass.js";
+import { motor, leePartida, pruebaDe, abierto, VIGENCIA_MS, TOPE_PASOS } from "../lib/bypass.js";
 
 const limpia = (v, max) => String(v ?? "").trim().replace(/\s+/g, " ").slice(0, max);
 const ALIAS_OK  = /^[A-Z0-9ÁÉÍÓÚÜÑ _.\-]{2,14}$/;
@@ -72,11 +77,22 @@ export default async function handler(req, res){
     const puntos = r.puntos;
     if (puntos <= 0) return res.status(400).json({ mensaje: "UNA PARTIDA SIN PUNTOS NO ENTRA A LA TABLA." });
 
+    // la prueba del monitor
+    const prueba = pruebaDe(partida.id);
+    const sP = r.pasoDePunto[prueba.punto];
+    const a = Number(cuerpo.prueba?.aparicion);
+    if (sP === undefined)
+      return res.status(400).json({ mensaje: `PARA ENTRAR A LA TABLA HAY QUE LLEGAR A LA PRUEBA DEL MONITOR (ENTRE LA VÁLVULA ${motor.PRUEBA.desde} Y LA ${motor.PRUEBA.hasta}).` });
+    if (!Number.isInteger(a) || a < sP || a > sP + motor.PRUEBA.llega
+        || !motor.cumplePrueba(prueba.tipo, prueba.verde, a, latidos))
+      return res.status(400).json({ mensaje: "LA PARTIDA NO PASÓ LA PRUEBA DEL MONITOR." });
+
     await prepara();
     const q = sql();
     try {
-      await q`insert into bypass_partidas (id, correo, puntos, pasos)
-              values (${partida.id}, ${correo}, ${puntos}, ${pasos})`;
+      await q`insert into bypass_partidas (id, correo, puntos, pasos, semilla, latidos, aparicion)
+              values (${partida.id}, ${correo}, ${puntos}, ${pasos}, ${partida.s},
+                      ${JSON.stringify(latidos)}::jsonb, ${a})`;
     } catch (e) {
       if (/duplicate key|unique constraint/i.test(String(e?.message)))
         return res.status(409).json({ mensaje: "ESA PARTIDA YA SE REGISTRÓ." });

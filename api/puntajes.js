@@ -4,6 +4,8 @@
                             cuántos hay en total, cuántos pasan a la
                             dinámica (los 8 primeros) y el cierre.
    GET ?completo=1          panel: todas las filas, con correo. Pide token.
+   GET ?repeticion=ID       panel: la repetición de una partida (semilla,
+                            latidos y su prueba) para verla. Pide token.
    DELETE ?correo=…         panel: quita a alguien de la tabla. Pide token.
                             Sus partidas quedan registradas, así que no
                             puede volver a usar las mismas. */
@@ -11,13 +13,13 @@
 import { prepara, sql } from "../lib/db.js";
 import { cors } from "../lib/cors.js";
 import { revisaToken } from "../lib/auth.js";
-import { cierre, abierto, POR_PAGINA, FINALISTAS } from "../lib/bypass.js";
+import { cierre, abierto, pruebaDe, POR_PAGINA, FINALISTAS } from "../lib/bypass.js";
 
 export default async function handler(req, res){
   if (cors(req, res)) return;
 
   try {
-    if (req.method === "GET" && !req.query?.completo){
+    if (req.method === "GET" && !req.query?.completo && !req.query?.repeticion){
       res.setHeader("Cache-Control", "public, max-age=15");
       await prepara();
       const q = sql();
@@ -42,6 +44,18 @@ export default async function handler(req, res){
     if (fallo) return res.status(fallo.code).json({ mensaje: fallo.mensaje });
     await prepara();
     const q = sql();
+
+    if (req.method === "GET" && req.query?.repeticion){
+      const id = String(req.query.repeticion);
+      const [f] = await q`
+        select p.id, p.puntos, p.pasos, p.semilla, p.latidos, p.aparicion, p.creado,
+               coalesce(t.alias, '—') as alias
+        from bypass_partidas p left join bypass_puntajes t on t.partida = p.id
+        where p.id = ${id}`;
+      if (!f) return res.status(404).json({ mensaje: "ESA PARTIDA NO EXISTE." });
+      if (!f.latidos) return res.status(404).json({ mensaje: "ESA PARTIDA ES DE ANTES DE QUE SE GUARDARAN LAS REPETICIONES." });
+      return res.status(200).json({ ...f, semilla: Number(f.semilla), prueba: pruebaDe(f.id) });
+    }
 
     if (req.method === "GET"){
       const filas = await q`
