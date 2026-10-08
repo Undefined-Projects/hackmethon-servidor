@@ -10,10 +10,12 @@
      simule la partida tiene que esperar lo mismo que una persona),
    - los latidos sean una lista sana: enteros, en orden, dentro de la
      partida y no más de 20 por segundo,
-   - y la partida haya pasado la prueba del monitor: llegó a la válvula
-     secreta, la prueba apareció a tiempo y se respondió como pedía.
+   - y la partida haya pasado las pruebas del monitor: llegó al menos a
+     la primera, cada una apareció a tiempo en su válvula y TODAS se
+     superaron. Si murió poco después de cruzar la válvula de una prueba,
+     antes de que pudiera aparecer, esa no se le pide.
 
-   Se guarda la repetición (semilla, latidos, aparición de la prueba)
+   Se guarda la repetición (semilla, latidos, aparición de cada prueba)
    para poder verla desde el panel.
 
    Cada correo tiene una sola fila con su mejor puntaje, protegida con
@@ -25,7 +27,7 @@
 
 import { prepara, sql } from "../lib/db.js";
 import { cors } from "../lib/cors.js";
-import { motor, leePartida, pruebaDe, abierto, VIGENCIA_MS, TOPE_PASOS,
+import { motor, leePartida, pruebasDe, abierto, VIGENCIA_MS, TOPE_PASOS,
          cifraClave, claveCorrecta, aliasReservado } from "../lib/bypass.js";
 
 const limpia = (v, max) => String(v ?? "").trim().replace(/\s+/g, " ").slice(0, max);
@@ -81,24 +83,38 @@ export default async function handler(req, res){
     if (edad < pasos * motor.DT * 1000 * .97)
       return res.status(400).json({ mensaje: "LA PARTIDA DURÓ MENOS DE LO QUE DICE." });
 
-    // Se vuelve a jugar, con la prueba del monitor inyectada en el paso en
-    // que el jugador dice que le apareció. La prueba cambia la partida (se
-    // despeja la pantalla), así que tiene que estar en la simulación.
-    const prueba = pruebaDe(partida.id);
-    const a = Number(cuerpo.prueba?.aparicion);
-    const conPrueba = Number.isInteger(a) && a > 0 ? { a, def: prueba.def } : null;
-    const r = motor.simula(partida.s, latidos, pasos, conPrueba);
+    // Se vuelve a jugar, con cada prueba del monitor inyectada en el paso
+    // en que el jugador dice que le apareció. Las pruebas cambian la
+    // partida (se despeja la pantalla), así que van en la simulación.
+    const todas = pruebasDe(partida.id);
+    const apariciones = Array.isArray(cuerpo.pruebas) ? cuerpo.pruebas : [];
+    if (apariciones.length > todas.length || apariciones.some((a, i) =>
+        !Number.isInteger(a) || a < 1 || a > pasos || (i && a <= apariciones[i - 1])))
+      return res.status(400).json({ mensaje: "LA PARTIDA NO ES VÁLIDA." });
+    const r = motor.simula(partida.s, latidos, pasos,
+                           apariciones.map((a, i) => ({ a, def: todas[i].def })));
     if (r.vivo || r.pasos !== pasos)
       return res.status(400).json({ mensaje: "LA PARTIDA NO CUADRA CON LA SIMULACIÓN." });
     const puntos = r.puntos;
     if (puntos <= 0) return res.status(400).json({ mensaje: "UNA PARTIDA SIN PUNTOS NO ENTRA A LA TABLA." });
 
-    // la prueba: apareció en su válvula (con margen de red) y se cumplió
-    const sP = r.pasoDePunto[prueba.punto];
-    if (sP === undefined)
-      return res.status(400).json({ mensaje: `PARA ENTRAR A LA TABLA HAY QUE LLEGAR A LA PRUEBA DEL MONITOR (ENTRE LA VÁLVULA ${motor.PRUEBA.desde} Y LA ${motor.PRUEBA.hasta}).` });
-    if (!conPrueba || a < sP || a > sP + motor.PRUEBA.llega || r.prueba !== "ok")
-      return res.status(400).json({ mensaje: "LA PARTIDA NO PASÓ LA PRUEBA DEL MONITOR." });
+    // Las pruebas: cada válvula de prueba que cruzó la tuvo a tiempo (con
+    // margen de red) y todas se superaron.
+    const tocadas = todas.filter(x => r.pasoDePunto[x.punto] !== undefined);
+    if (!tocadas.length)
+      return res.status(400).json({ mensaje: "PARA ENTRAR A LA TABLA HAY QUE LLEGAR A LA PRUEBA DEL MONITOR." });
+    for (let i = 0; i < tocadas.length; i++){
+      const sP = r.pasoDePunto[tocadas[i].punto], a = apariciones[i];
+      if (a === undefined){
+        // murió justo tras cruzar la válvula, antes de que pudiera salir
+        if (i === tocadas.length - 1 && i === apariciones.length && pasos <= sP + motor.PRUEBA.llega) break;
+        return res.status(400).json({ mensaje: "LA PARTIDA NO PASÓ LAS PRUEBAS DEL MONITOR." });
+      }
+      if (a < sP || a > sP + motor.PRUEBA.llega || r.pruebas[i] !== "ok")
+        return res.status(400).json({ mensaje: "LA PARTIDA NO PASÓ LAS PRUEBAS DEL MONITOR." });
+    }
+    if (apariciones.length > tocadas.length)
+      return res.status(400).json({ mensaje: "LA PARTIDA NO PASÓ LAS PRUEBAS DEL MONITOR." });
 
     await prepara();
     const q = sql();
@@ -114,9 +130,9 @@ export default async function handler(req, res){
     const nueva = fila?.clave ? null : cifraClave(clave);
 
     try {
-      await q`insert into bypass_partidas (id, correo, puntos, pasos, semilla, latidos, aparicion)
+      await q`insert into bypass_partidas (id, correo, puntos, pasos, semilla, latidos, aparicion, apariciones)
               values (${partida.id}, ${correo}, ${puntos}, ${pasos}, ${partida.s},
-                      ${JSON.stringify(latidos)}::jsonb, ${a})`;
+                      ${JSON.stringify(latidos)}::jsonb, ${apariciones[0]}, ${JSON.stringify(apariciones)}::jsonb)`;
     } catch (e) {
       if (/duplicate key|unique constraint/i.test(String(e?.message)))
         return res.status(409).json({ mensaje: "ESA PARTIDA YA SE REGISTRÓ." });

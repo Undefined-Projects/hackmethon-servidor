@@ -15,7 +15,7 @@
 import { prepara, sql } from "../lib/db.js";
 import { cors } from "../lib/cors.js";
 import { revisaToken } from "../lib/auth.js";
-import { cierre, abierto, pruebaDe, POR_PAGINA, FINALISTAS } from "../lib/bypass.js";
+import { cierre, abierto, pruebasDe, motor, POR_PAGINA, FINALISTAS } from "../lib/bypass.js";
 
 export default async function handler(req, res){
   if (cors(req, res)) return;
@@ -50,13 +50,18 @@ export default async function handler(req, res){
     if (req.method === "GET" && req.query?.repeticion){
       const id = String(req.query.repeticion);
       const [f] = await q`
-        select p.id, p.puntos, p.pasos, p.semilla, p.latidos, p.aparicion, p.creado,
+        select p.id, p.puntos, p.pasos, p.semilla, p.latidos, p.aparicion, p.apariciones, p.creado,
                coalesce(t.alias, '—') as alias
         from bypass_partidas p left join bypass_puntajes t on t.partida = p.id
         where p.id = ${id}`;
       if (!f) return res.status(404).json({ mensaje: "ESA PARTIDA NO EXISTE." });
       if (!f.latidos) return res.status(404).json({ mensaje: "ESA PARTIDA ES DE ANTES DE QUE SE GUARDARAN LAS REPETICIONES." });
-      return res.status(200).json({ ...f, semilla: Number(f.semilla), prueba: pruebaDe(f.id) });
+      // Las de antes de la versión 4 (una sola prueba) ya no se pueden
+      // reproducir con el motor actual.
+      if (!f.apariciones)
+        return res.status(409).json({ mensaje: "ESA PARTIDA ES DE UNA VERSIÓN ANTERIOR DEL JUEGO: YA NO SE PUEDE REPRODUCIR." });
+      return res.status(200).json({ ...f, semilla: Number(f.semilla), version: motor.VERSION,
+                                    pruebas: pruebasDe(f.id).slice(0, f.apariciones.length).map(x => x.def) });
     }
 
     if (req.method === "GET"){

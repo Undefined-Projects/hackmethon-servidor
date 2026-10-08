@@ -1,13 +1,13 @@
-/* GET /api/desafio?token=…&p=N — ¿toca la prueba del monitor en la
-   válvula N? El navegador pregunta al cruzar cada válvula del rango
-   (10 a 20) y el servidor solo contesta que sí en la que le toca a esa
-   partida, con el tipo de prueba. Así un bot no puede calcular la
+/* GET /api/desafio?token=…&p=N — ¿toca una prueba del monitor en la
+   válvula N? El navegador pregunta al cruzar cada válvula (desde la 6) y
+   el servidor solo contesta que sí en las que le tocan a esa partida,
+   con sus retos. Así un bot no puede calcular la
    partida perfecta de antemano: tiene que reaccionar en vivo.
 
    Sin base de datos: la firma del token basta. */
 
 import { cors } from "../lib/cors.js";
-import { leePartida, pruebaDe, motor, VIGENCIA_MS } from "../lib/bypass.js";
+import { leePartida, pruebasDe, motor, VIGENCIA_MS } from "../lib/bypass.js";
 
 export default function handler(req, res){
   if (cors(req, res)) return;
@@ -21,10 +21,9 @@ export default function handler(req, res){
     if (!partida || Date.now() - partida.t > VIGENCIA_MS)
       return res.status(400).json({ mensaje: "LA PARTIDA NO ES VÁLIDA." });
     const p = Number(req.query?.p);
-    const { desde, hasta } = motor.PRUEBA;
-    if (!Number.isInteger(p) || p < desde || p > hasta) return res.status(200).json({ ahora: false });
-    const prueba = pruebaDe(partida.id);
-    if (p !== prueba.punto) return res.status(200).json({ ahora: false });
+    if (!Number.isInteger(p) || p < motor.PRUEBA.desde) return res.status(200).json({ ahora: false });
+    const prueba = pruebasDe(partida.id).find(x => x.punto === p);
+    if (!prueba) return res.status(200).json({ ahora: false });
     return res.status(200).json({ ahora: true, def: prueba.def });
   } catch (e) {
     console.error("desafio:", e);
