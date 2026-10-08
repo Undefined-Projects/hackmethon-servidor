@@ -70,21 +70,23 @@ export default async function handler(req, res){
     if (edad < pasos * motor.DT * 1000 * .97)
       return res.status(400).json({ mensaje: "LA PARTIDA DURÓ MENOS DE LO QUE DICE." });
 
-    // y se vuelve a jugar
-    const r = motor.simula(partida.s, latidos, pasos);
+    // Se vuelve a jugar, con la prueba del monitor inyectada en el paso en
+    // que el jugador dice que le apareció. La prueba cambia la partida (se
+    // despeja la pantalla), así que tiene que estar en la simulación.
+    const prueba = pruebaDe(partida.id);
+    const a = Number(cuerpo.prueba?.aparicion);
+    const conPrueba = Number.isInteger(a) && a > 0 ? { a, def: prueba.def } : null;
+    const r = motor.simula(partida.s, latidos, pasos, conPrueba);
     if (r.vivo || r.pasos !== pasos)
       return res.status(400).json({ mensaje: "LA PARTIDA NO CUADRA CON LA SIMULACIÓN." });
     const puntos = r.puntos;
     if (puntos <= 0) return res.status(400).json({ mensaje: "UNA PARTIDA SIN PUNTOS NO ENTRA A LA TABLA." });
 
-    // la prueba del monitor
-    const prueba = pruebaDe(partida.id);
+    // la prueba: apareció en su válvula (con margen de red) y se cumplió
     const sP = r.pasoDePunto[prueba.punto];
-    const a = Number(cuerpo.prueba?.aparicion);
     if (sP === undefined)
       return res.status(400).json({ mensaje: `PARA ENTRAR A LA TABLA HAY QUE LLEGAR A LA PRUEBA DEL MONITOR (ENTRE LA VÁLVULA ${motor.PRUEBA.desde} Y LA ${motor.PRUEBA.hasta}).` });
-    if (!Number.isInteger(a) || a < sP || a > sP + motor.PRUEBA.llega
-        || !motor.cumplePrueba(prueba.tipo, prueba.verde, a, latidos))
+    if (!conPrueba || a < sP || a > sP + motor.PRUEBA.llega || r.prueba !== "ok")
       return res.status(400).json({ mensaje: "LA PARTIDA NO PASÓ LA PRUEBA DEL MONITOR." });
 
     await prepara();

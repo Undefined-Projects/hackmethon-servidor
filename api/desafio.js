@@ -25,7 +25,7 @@ export default function handler(req, res){
     if (!Number.isInteger(p) || p < desde || p > hasta) return res.status(200).json({ ahora: false });
     const prueba = pruebaDe(partida.id);
     if (p !== prueba.punto) return res.status(200).json({ ahora: false });
-    return res.status(200).json({ ahora: true, tipo: prueba.tipo, verde: prueba.verde });
+    return res.status(200).json({ ahora: true, def: prueba.def });
   } catch (e) {
     console.error("desafio:", e);
     return res.status(500).json({ mensaje: "EL SERVIDOR NO PUDO PREPARAR LA PRUEBA." });
